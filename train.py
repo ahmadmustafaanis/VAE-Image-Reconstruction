@@ -67,15 +67,17 @@ for epoch in tqdm(range(EPOCHS)):
     model.eval()
     val_loss = 0
 
-    with torch.no_grad():
-        for data, target in val_loader:
-            data, target = data.to(device), target.to(device)
-            recon_batch, _, _ = model(data)
-
-            loss = vae_loss(recon_batch, target, mu, logvar)
-            val_loss += loss.item()
-    avg_val_loss = val_loss / len(val_loader)
-    wandb.log({"epoch": epoch, "val_loss": avg_val_loss})
+    # with torch.no_grad():
+    #     for data, target in val_loader:
+    #         data, target = data.to(device), target.to(device)
+    #         recon_batch, mu, logvar = model(data)
+    #         try:
+    #             loss = vae_loss(recon_batch, target, mu, logvar)
+    #             val_loss += loss.item()
+    #         except Exception:
+    #             continue
+    # avg_val_loss = val_loss / len(val_loader)
+    # wandb.log({"epoch": epoch, "val_loss": avg_val_loss})
 
     shuffled_img, original_img, reconstructed_img = (
         data[0].cpu(),

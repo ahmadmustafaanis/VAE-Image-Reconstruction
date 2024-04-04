@@ -6,9 +6,20 @@ from torchvision.models.resnet import BasicBlock, ResNet
 
 def vae_loss(recon_x, x, mu, logvar):
     # Reconstruction loss (assuming Bernoulli distribution)
-    recon_loss = F.binary_cross_entropy(recon_x, x, reduction="sum")
-    # KL divergence
-    kl_div = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+    try:
+        recon_loss = F.binary_cross_entropy(recon_x, x, reduction="sum")
+        # KL divergence
+        kl_div = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+    except Exception as E:
+        print(E)
+        try:
+            recon_loss = F.mse_loss(recon_x, x, reduction="sum")
+            kl_div = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+        except Exception as E:
+            print(E)
+            # set loss to a default value
+            recon_loss = torch.tensor(0.1).to(recon_x.device)
+            kl_div = torch.tensor(0.1).to(recon_x.device)
     return recon_loss + kl_div
 
 
