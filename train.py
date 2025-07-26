@@ -10,8 +10,9 @@ from data import ShuffledCIFAR10
 from model import VAE, vae_loss
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-EPOCHS = 100000  # can we have grokking kinda effect with this insane number???
+EPOCHS = 200  # Reasonable number for initial training
 BATCH_SIZE = 64
+BETA = 1.0  # Beta-VAE weighting parameter
 train_dataset = ShuffledCIFAR10(train=True)
 train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True)
 
@@ -23,6 +24,7 @@ val_loader = DataLoader(
 
 model = VAE().to(device)
 optimizer = optim.Adam(model.parameters(), lr=0.001)
+scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=10, verbose=True)
 
 
 def show_images(shuffled, original, reconstructed):
@@ -55,29 +57,50 @@ for epoch in tqdm(range(EPOCHS)):
         data, target = data.to(device), target.to(device)
         optimizer.zero_grad()
         recon_batch, mu, logvar = model(data)
-        loss = vae_loss(recon_batch, target, mu, logvar)
+        loss = vae_loss(recon_batch, target, mu, logvar, BETA)
         loss.backward()
         train_loss += loss.item()
         optimizer.step()
 
     avg_train_loss = train_loss / len(train_loader)
-    print(f"Epoch {epoch}, Training Loss: {avg_train_loss}")
     wandb.log({"epoch": epoch, "train_loss": avg_train_loss})
 
+    # Validation loop
     model.eval()
     val_loss = 0
-
-    # with torch.no_grad():
-    #     for data, target in val_loader:
-    #         data, target = data.to(device), target.to(device)
-    #         recon_batch, mu, logvar = model(data)
-    #         try:
-    #             loss = vae_loss(recon_batch, target, mu, logvar)
-    #             val_loss += loss.item()
-    #         except Exception:
-    #             continue
-    # avg_val_loss = val_loss / len(val_loader)
-    # wandb.log({"epoch": epoch, "val_loss": avg_val_loss})
+    val_recon_loss = 0
+    val_kl_loss = 0
+    
+    with torch.no_grad():
+        for data, target in val_loader:
+            data, target = data.to(device), target.to(device)
+            recon_batch, mu, logvar = model(data)
+            
+            # Calculate individual loss components
+            recon_loss = torch.nn.functional.mse_loss(recon_batch, target, reduction="sum")
+            kl_div = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+            loss = recon_loss + BETA * kl_div
+            
+            val_loss += loss.item()
+            val_recon_loss += recon_loss.item()
+            val_kl_loss += kl_div.item()
+    
+    avg_val_loss = val_loss / len(val_loader)
+    avg_val_recon = val_recon_loss / len(val_loader)
+    avg_val_kl = val_kl_loss / len(val_loader)
+    
+    # Learning rate scheduling
+    scheduler.step(avg_val_loss)
+    
+    print(f"Epoch {epoch+1}/{EPOCHS}, Training Loss: {avg_train_loss:.4f}, Val Loss: {avg_val_loss:.4f}")
+    
+    wandb.log({
+        "epoch": epoch, 
+        "val_loss": avg_val_loss,
+        "val_recon_loss": avg_val_recon,
+        "val_kl_loss": avg_val_kl,
+        "learning_rate": optimizer.param_groups[0]['lr']
+    })
 
     shuffled_img, original_img, reconstructed_img = (
         data[0].cpu(),
